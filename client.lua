@@ -1,12 +1,13 @@
 -- Variables
 local QBCore = exports['qb-core']:GetCoreObject()
-local PlayerData = QBCore.Functions.GetPlayerData()
+local PlayerData = QBCore.Functions.GetPlayerData()-- Just for resource restart (same as event handler)
 local testDriveZone = nil
-local vehicleMenu = {}
-local Initialized = false
+local vehicleMenu
+
 local testDriveVeh, inTestDrive = 0, false
 local ClosestVehicle = 1
 local zones = {}
+
 local insideShop = nil
 
 -- Handlers
@@ -16,7 +17,6 @@ AddEventHandler('QBCore:Client:OnPlayerLoaded', function()
     local gameTime = GetGameTimer()
     TriggerServerEvent('qb-vehicleshop:server:addPlayer', citizenid, gameTime)
     TriggerServerEvent('qb-vehicleshop:server:checkFinance')
-    if not Initialized then Init() end
 end)
 
 RegisterNetEvent('QBCore:Client:OnJobUpdate', function(JobInfo)
@@ -139,19 +139,12 @@ local function createTestDriveReturn()
     end)
 end
 
-local function startTestDriveTimer(testDriveTime, prevCoords)
+local function startTestDriveTimer(testDriveTime)
     local gameTimer = GetGameTimer()
     CreateThread(function()
         while inTestDrive do
             if GetGameTimer() < gameTimer + tonumber(1000 * testDriveTime) then
                 local secondsLeft = GetGameTimer() - gameTimer
-                if secondsLeft >= tonumber(1000 * testDriveTime) - 20 then
-                    QBCore.Functions.DeleteVehicle(testDriveVeh)
-                    testDriveVeh = 0
-                    inTestDrive = false
-                    SetEntityCoords(PlayerPedId(), prevCoords)
-                    QBCore.Functions.Notify(Lang:t('general.testdrive_complete'))
-                end
                 drawTxt(Lang:t('general.testdrive_timer') .. math.ceil(testDriveTime - secondsLeft / 1000), 4, 0.5, 0.93, 0.50, 255, 255, 255, 180)
             end
             Wait(0)
@@ -166,7 +159,7 @@ local function createVehZones(shopName, entity)
                 vector3(Config.Shops[shopName]['ShowroomVehicles'][i]['coords'].x,
                     Config.Shops[shopName]['ShowroomVehicles'][i]['coords'].y,
                     Config.Shops[shopName]['ShowroomVehicles'][i]['coords'].z),
-                Config.Shops[shopName]['Zone']['size'],
+                Config.Shops[shopName]['Zone']['size'], --2.75
                 Config.Shops[shopName]['Zone']['size'],
                 {
                     name = "box_zone_" .. shopName .. "_" .. i,
@@ -206,7 +199,7 @@ end
 
 -- Zones
 function createFreeUseShop(shopShape, name)
-    local zone = PolyZone:Create(shopShape, {
+    local zone = PolyZone:Create(shopShape, {-- create the zone
         name = name,
         minZ = shopShape.minZ,
         maxZ = shopShape.maxZ
@@ -269,14 +262,14 @@ function createFreeUseShop(shopShape, name)
                 end
             end)
         else
-            insideShop = nil
+            insideShop = nil -- leave the shops zone
             ClosestVehicle = 1
         end
     end)
 end
 
 function createManagedShop(shopShape, name)
-    local zone = PolyZone:Create(shopShape, {
+    local zone = PolyZone:Create(shopShape, {-- create the zone
         name = name,
         minZ = shopShape.minZ,
         maxZ = shopShape.maxZ
@@ -343,64 +336,18 @@ function createManagedShop(shopShape, name)
                 end
             end)
         else
-            insideShop = nil
+            insideShop = nil -- leave the shops zone
             ClosestVehicle = 1
         end
     end)
 end
 
-function Init()
-    Initialized = true
-    CreateThread(function()
-        for name, shop in pairs(Config.Shops) do
-            if shop['Type'] == 'free-use' then
-                createFreeUseShop(shop['Zone']['Shape'], name)
-            elseif shop['Type'] == 'managed' then
-                createManagedShop(shop['Zone']['Shape'], name)
-            end
-        end
-    end)
-    CreateThread(function()
-        local financeZone = BoxZone:Create(Config.FinanceZone, 2.0, 2.0, {
-            name = "vehicleshop_financeZone",
-            offset = {0.0, 0.0, 0.0},
-            scale = {1.0, 1.0, 1.0},
-            minZ = Config.FinanceZone.z - 1,
-            maxZ = Config.FinanceZone.z + 1,
-            debugPoly = false,
-        })
-
-        financeZone:onPlayerInOut(function(isPointInside)
-            if isPointInside then
-                exports['qb-menu']:showHeader(financeMenu)
-            else
-                exports['qb-menu']:closeMenu()
-            end
-        end)
-    end)
-    CreateThread(function()
-        for k in pairs(Config.Shops) do
-            for i = 1, #Config.Shops[k]['ShowroomVehicles'] do
-                local model = GetHashKey(Config.Shops[k]["ShowroomVehicles"][i].defaultVehicle)
-                RequestModel(model)
-                while not HasModelLoaded(model) do
-                    Wait(0)
-                end
-                local veh = CreateVehicle(model, Config.Shops[k]["ShowroomVehicles"][i].coords.x, Config.Shops[k]["ShowroomVehicles"][i].coords.y, Config.Shops[k]["ShowroomVehicles"][i].coords.z, false, false)
-                SetModelAsNoLongerNeeded(model)
-                SetEntityAsMissionEntity(veh, true, true)
-                SetVehicleOnGroundProperly(veh)
-                SetEntityInvincible(veh, true)
-                SetVehicleDirtLevel(veh, 0.0)
-                SetVehicleDoorsLocked(veh, 3)
-                SetEntityHeading(veh, Config.Shops[k]["ShowroomVehicles"][i].coords.w)
-                FreezeEntityPosition(veh, true)
-                SetVehicleNumberPlateText(veh, 'BUY ME')
-                if Config.UsingTarget then createVehZones(k, veh) end
-            end
-            if not Config.UsingTarget then createVehZones(k) end
-        end
-    end)
+for name, shop in pairs(Config.Shops) do
+    if shop['Type'] == 'free-use' then
+        createFreeUseShop(shop['Zone']['Shape'], name)
+    elseif shop['Type'] == 'managed' then
+        createManagedShop(shop['Zone']['Shape'], name)
+    end
 end
 
 -- Events
@@ -416,8 +363,7 @@ RegisterNetEvent('qb-vehicleshop:client:TestDrive', function()
     if not inTestDrive and ClosestVehicle ~= 0 then
         inTestDrive = true
         local prevCoords = GetEntityCoords(PlayerPedId())
-        QBCore.Functions.TriggerCallback('QBCore:Server:SpawnVehicle', function(netId)
-            local veh = NetToVeh(netId)
+        QBCore.Functions.SpawnVehicle(Config.Shops[insideShop]["ShowroomVehicles"][ClosestVehicle].chosenVehicle, function(veh)
             local closestShop = insideShop
             TaskWarpPedIntoVehicle(PlayerPedId(), veh, -1)
             exports['LegacyFuel']:SetFuel(veh, 100)
@@ -425,13 +371,23 @@ RegisterNetEvent('qb-vehicleshop:client:TestDrive', function()
             SetEntityAsMissionEntity(veh, true, true)
             SetEntityHeading(veh, Config.Shops[closestShop]["TestDriveSpawn"].w)
             TriggerEvent('vehiclekeys:client:SetOwner', QBCore.Functions.GetPlate(veh))
+            TriggerServerEvent('qb-vehicletuning:server:SaveVehicleProps', QBCore.Functions.GetVehicleProperties(veh))
             testDriveVeh = veh
             QBCore.Functions.Notify(Lang:t('general.testdrive_timenoti', {testdrivetime = Config.Shops[closestShop]["TestDriveTimeLimit"]}))
-        end, Config.Shops[insideShop]["ShowroomVehicles"][ClosestVehicle].chosenVehicle, Config.Shops[insideShop]["TestDriveSpawn"], false)
+            SetTimeout(Config.Shops[closestShop]["TestDriveTimeLimit"] * 60000, function()
+                if testDriveVeh ~= 0 then
+                    testDriveVeh = 0
+                    inTestDrive = false
+                    QBCore.Functions.DeleteVehicle(veh)
+                    SetEntityCoords(PlayerPedId(), prevCoords)
+                    QBCore.Functions.Notify(Lang:t('general.freeuse_testdrive_complete'))
+                end
+            end)
+        end, Config.Shops[insideShop]["TestDriveSpawn"], false)
         createTestDriveReturn()
-        startTestDriveTimer(Config.Shops[insideShop]["TestDriveTimeLimit"] * 60, prevCoords)
+        startTestDriveTimer(Config.Shops[insideShop]["TestDriveTimeLimit"] * 60)
     else
-        QBCore.Functions.Notify(Lang:t('error.testdrive_alreadyin'), 'error')
+        QBCore.Functions.Notify(Lang:t('error.freeuse_testdrive_alreadyin'), 'error')
     end
 end)
 
@@ -440,18 +396,28 @@ RegisterNetEvent('qb-vehicleshop:client:customTestDrive', function(data)
         inTestDrive = true
         local vehicle = data
         local prevCoords = GetEntityCoords(PlayerPedId())
-        QBCore.Functions.TriggerCallback('QBCore:Server:SpawnVehicle', function(netId)
-            local veh = NetToVeh(netId)
+        QBCore.Functions.SpawnVehicle(vehicle, function(veh)
+            TaskWarpPedIntoVehicle(GetPlayerPed(GetPlayerFromServerId(data.playerid)), veh, -1)
             exports['LegacyFuel']:SetFuel(veh, 100)
             SetVehicleNumberPlateText(veh, 'TESTDRIVE')
             SetEntityAsMissionEntity(veh, true, true)
-            SetEntityHeading(veh, Config.Shops[insideShop]["TestDriveSpawn"].w)
+            SetEntityHeading(veh, Config.Shops[insideShop]["VehicleSpawn"].w)
             TriggerEvent('vehiclekeys:client:SetOwner', QBCore.Functions.GetPlate(veh))
+            TriggerServerEvent('qb-vehicletuning:server:SaveVehicleProps', QBCore.Functions.GetVehicleProperties(veh))
             testDriveVeh = veh
             QBCore.Functions.Notify(Lang:t('general.testdrive_timenoti', {testdrivetime = Config.Shops[insideShop]["TestDriveTimeLimit"]}))
-        end, vehicle, Config.Shops[insideShop]["TestDriveSpawn"], true)
+            SetTimeout(Config.Shops[insideShop]["TestDriveTimeLimit"] * 60000, function()
+                if testDriveVeh ~= 0 then
+                    testDriveVeh = 0
+                    inTestDrive = false
+                    QBCore.Functions.DeleteVehicle(veh)
+                    SetEntityCoords(PlayerPedId(), prevCoords)
+                    QBCore.Functions.Notify(Lang:t('general.testdrive_complete'))
+                end
+            end)
+        end, Config.Shops[insideShop]["VehicleSpawn"], false)
         createTestDriveReturn()
-        startTestDriveTimer(Config.Shops[insideShop]["TestDriveTimeLimit"] * 60, prevCoords)
+        startTestDriveTimer(Config.Shops[insideShop]["TestDriveTimeLimit"] * 60)
     else
         QBCore.Functions.Notify(Lang:t('error.testdrive_alreadyin'), 'error')
     end
@@ -472,6 +438,9 @@ RegisterNetEvent('qb-vehicleshop:client:TestDriveReturn', function()
 end)
 
 RegisterNetEvent('qb-vehicleshop:client:vehCategories', function()
+    local categoryNames = {}
+    for k in pairs(Config.Shops[insideShop]['Categories']) do categoryNames[#categoryNames + 1] = k end
+    table.sort(categoryNames)
     local categoryMenu = {
         {
             header = Lang:t('menus.goback_header'),
@@ -481,14 +450,14 @@ RegisterNetEvent('qb-vehicleshop:client:vehCategories', function()
             }
         }
     }
-    for k, v in pairs(Config.Shops[insideShop]['Categories']) do
+    for i=1, #categoryNames do
         categoryMenu[#categoryMenu + 1] = {
-            header = v,
+            header = Config.Shops[insideShop]['Categories'][categoryNames[i]],
             icon = "fa-solid fa-circle",
             params = {
                 event = 'qb-vehicleshop:client:openVehCats',
                 args = {
-                    catName = k
+                    catName = categoryNames[i]
                 }
             }
         }
@@ -616,15 +585,15 @@ RegisterNetEvent('qb-vehicleshop:client:swapVehicle', function(data)
 end)
 
 RegisterNetEvent('qb-vehicleshop:client:buyShowroomVehicle', function(vehicle, plate)
-    QBCore.Functions.TriggerCallback('QBCore:Server:SpawnVehicle', function(netId)
-        local veh = NetToVeh(netId)
+    QBCore.Functions.SpawnVehicle(vehicle, function(veh)
+        TaskWarpPedIntoVehicle(PlayerPedId(), veh, -1)
         exports['LegacyFuel']:SetFuel(veh, 100)
         SetVehicleNumberPlateText(veh, plate)
         SetEntityHeading(veh, Config.Shops[insideShop]["VehicleSpawn"].w)
         SetEntityAsMissionEntity(veh, true, true)
         TriggerEvent("vehiclekeys:client:SetOwner", QBCore.Functions.GetPlate(veh))
         TriggerServerEvent("qb-vehicletuning:server:SaveVehicleProps", QBCore.Functions.GetVehicleProperties(veh))
-    end, vehicle, Config.Shops[insideShop]["VehicleSpawn"], true)
+    end, Config.Shops[insideShop]["VehicleSpawn"], true)
 end)
 
 RegisterNetEvent('qb-vehicleshop:client:getVehicles', function()
@@ -768,5 +737,48 @@ CreateThread(function()
             AddTextComponentSubstringPlayerName(Config.Shops[k]["ShopLabel"])
             EndTextCommandSetBlipName(Dealer)
         end
+    end
+end)
+
+CreateThread(function()
+    local financeZone = BoxZone:Create(Config.FinanceZone, 2.0, 2.0, {
+        name = "vehicleshop_financeZone",
+        offset = {0.0, 0.0, 0.0},
+        scale = {1.0, 1.0, 1.0},
+        minZ = Config.FinanceZone.z - 1,
+        maxZ = Config.FinanceZone.z + 1,
+        debugPoly = false,
+    })
+
+    financeZone:onPlayerInOut(function(isPointInside)
+        if isPointInside then
+            exports['qb-menu']:showHeader(financeMenu)
+        else
+            exports['qb-menu']:closeMenu()
+        end
+    end)
+end)
+
+CreateThread(function()
+    for k in pairs(Config.Shops) do
+        for i = 1, #Config.Shops[k]['ShowroomVehicles'] do
+            local model = GetHashKey(Config.Shops[k]["ShowroomVehicles"][i].defaultVehicle)
+            RequestModel(model)
+            while not HasModelLoaded(model) do
+                Wait(0)
+            end
+            local veh = CreateVehicle(model, Config.Shops[k]["ShowroomVehicles"][i].coords.x, Config.Shops[k]["ShowroomVehicles"][i].coords.y, Config.Shops[k]["ShowroomVehicles"][i].coords.z, false, false)
+            SetModelAsNoLongerNeeded(model)
+            SetEntityAsMissionEntity(veh, true, true)
+            SetVehicleOnGroundProperly(veh)
+            SetEntityInvincible(veh, true)
+            SetVehicleDirtLevel(veh, 0.0)
+            SetVehicleDoorsLocked(veh, 3)
+            SetEntityHeading(veh, Config.Shops[k]["ShowroomVehicles"][i].coords.w)
+            FreezeEntityPosition(veh, true)
+            SetVehicleNumberPlateText(veh, 'BUY ME')
+            if Config.UsingTarget then createVehZones(k, veh) end
+        end
+        if not Config.UsingTarget then createVehZones(k) end
     end
 end)
